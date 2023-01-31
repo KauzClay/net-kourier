@@ -34,6 +34,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"knative.dev/control-protocol/pkg/certificates"
 	pkgconfig "knative.dev/net-kourier/pkg/config"
 	envoy "knative.dev/net-kourier/pkg/envoy/api"
@@ -107,6 +108,15 @@ func (translator *IngressTranslator) translateIngress(ctx context.Context, ingre
 	externalHosts := make([]*route.VirtualHost, 0, len(ingress.Spec.Rules))
 	externalTLSHosts := make([]*route.VirtualHost, 0, len(ingress.Spec.Rules))
 	clusters := make([]*v3.Cluster, 0, len(ingress.Spec.Rules))
+
+	tlsDomains := sets.String{}
+
+	for _, e := range ingress.Spec.TLS {
+		for _, host := range e.Hosts {
+			fmt.Printf("\n\nAdding host (%s) to tlsDomains\n\n", host)
+			tlsDomains.Insert(host)
+		}
+	}
 
 	for i, rule := range ingress.Spec.Rules {
 		ruleName := fmt.Sprintf("(%s/%s).Rules[%d]", ingress.Namespace, ingress.Name, i)
@@ -260,9 +270,15 @@ func (translator *IngressTranslator) translateIngress(ctx context.Context, ingre
 				virtualTLSHost = envoy.NewVirtualHostWithExtAuthz(ruleName, contextExtensions, domainsForRule(rule), tlsRoutes)
 			}
 		} else {
+			//TODO @KauzClay: something is weird here. It seems like it adds virtual TLS hosts without checking if the domain is in spec.TLS
 			virtualHost = envoy.NewVirtualHost(ruleName, domainsForRule(rule), routes)
 			if len(tlsRoutes) != 0 {
-				virtualTLSHost = envoy.NewVirtualHost(ruleName, domainsForRule(rule), tlsRoutes)
+				for _, d := range virtualHost.Domains {
+					if tlsDomains.Has(d) {
+						virtualTLSHost = envoy.NewVirtualHost(ruleName, domainsForRule(rule), tlsRoutes)
+						break
+					}
+				}
 			}
 		}
 

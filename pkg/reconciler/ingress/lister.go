@@ -67,6 +67,16 @@ func (l *gatewayPodTargetLister) getIngressUrls(ctx context.Context, ing *v1alph
 	ips := sets.NewString(gatewayIps...)
 
 	targets := make([]status.ProbeTarget, 0, len(ing.Spec.Rules))
+
+	tlsDomains := sets.String{}
+
+	for _, e := range ing.Spec.TLS {
+		for _, host := range e.Hosts {
+			fmt.Printf("\n\nAdding host (%s) to tlsDomains\n\n", host)
+			tlsDomains.Insert(host)
+		}
+	}
+
 	for _, rule := range ing.Spec.Rules {
 		var target status.ProbeTarget
 
@@ -78,8 +88,13 @@ func (l *gatewayPodTargetLister) getIngressUrls(ctx context.Context, ing *v1alph
 				PodIPs: ips,
 			}
 			if len(ing.Spec.TLS) != 0 {
-				target.PodPort = strconv.Itoa(int(config.HTTPSPortProb))
-				target.URLs = domainsToURL(domains, "https")
+				for _, d := range domains {
+					if tlsDomains.Has(d) {
+						target.PodPort = strconv.Itoa(int(config.HTTPSPortProb))
+						target.URLs = domainsToURL(domains, "https")
+						break
+					}
+				}
 			} else {
 				target.PodPort = strconv.Itoa(int(config.HTTPPortProb))
 				target.URLs = domainsToURL(domains, scheme)
